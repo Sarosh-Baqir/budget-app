@@ -1,0 +1,1 @@
+ALTER TABLE `user` MODIFY COLUMN `otp` varchar(6);
