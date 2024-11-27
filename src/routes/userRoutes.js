@@ -2,7 +2,7 @@ import express from "express";
 import {
   registerUser,
   verifyUser,
-  getOTP,
+  getNewOTP,
   verifyOTP,
   login,
   updatePassword,
@@ -47,7 +47,7 @@ const router = express.Router();
 router.get(
   "/get-otp/:email",
   validationMiddleware(getOTPValidationSchema, (req) => req.params),
-  getOTP
+  getNewOTP
 );
 
 router.post(

@@ -1,40 +1,22 @@
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
+import fs from "fs"
 import { db } from "../../db/database.js";
 import { user } from "../../db/schema/user.js";
 import blackListToken from "../../db/schema/blacklisttoken.js";
-import {
-  createOTP,
-  createJWTToken,
-  getToken,
-  verifyToken,
-} from "../utils/helper.js";
+import { createOTP, createJWTToken, getToken, verifyToken } from "../utils/helper.js";
 import sendEmail from "../utils/sendEmail.js";
+import { successResponse, errorResponse, unauthorizeResponse } from "../utils/response.handle.js";
+import { registrationEmail, accountVerificationEmail, getNewOtpEmail, passwordUpdateEmail } from "../utils/emailTemplate.js";
 
-import {
-  successResponse,
-  errorResponse,
-  unauthorizeResponse,
-} from "../utils/response.handle.js";
 
-// API to register a new user
 const registerUser = async (req, res) => {
-  //console.log("in register controller");
+  const { first_name, last_name, email, phone, password } = req.body;
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const otp = createOTP();
   try {
-    const { first_name, last_name, email, phone, password } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const otp = createOTP();
-    //console.log("otp: ", otp);
-
-    try {
-      await sendEmail(
-        "Registration Request",
-        `Hello ${first_name}`,
-        `<h1>Hello ${first_name} ${last_name}</h1><p>Thank you for registering with us!</p><p>Your OTP for registration is <strong>${otp}</strong>.</p>`,
-        email
-      );
-
-      const data = await db
+    await db.transaction(async (transaction) => {
+      const data = await transaction
         .insert(user)
         .values({
           first_name,
@@ -43,326 +25,280 @@ const registerUser = async (req, res) => {
           phone,
           password: hashedPassword,
           otp,
-        })
-        .$returningId();
-
+        }).$returningId()
+        const verificationUrl = `http://localhost:3000/verify?email=${encodeURIComponent(
+          email
+        )}&otp=${otp}`;
+      
+      const emailContent = registrationEmail(first_name, last_name, otp, verificationUrl);
+      await sendEmail("Registration Successful - Welcome!", emailContent, email);
       return successResponse(
         res,
-        "User Registered Successfully! An email has been sent with otp to your provided email.",
-        {
-          data,
-        }
+        "User Registered Successfully! An email has been sent with OTP to your provided email."
       );
-    } catch (error) {
-      return errorResponse(
-        res,
-        `Error in sending email = ${error.message}`,
-        400
-      );
-    }
+    });
   } catch (error) {
     return errorResponse(res, error.message, 500);
   }
-};
+}
 
-// After Registration Verify the User
 const verifyUser = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp } = req.body
 
-    const data = await db.query.user.findFirst({
-      where: eq(user.email, email),
-    });
-    //console.log("data: ", data);
+    const data = await db.query.user.findFirst({ where: eq(user.email, email) })
     if (!data) {
-      return errorResponse(res, "User Not Found", 404);
+      return errorResponse(res, "User Not Found", 404)
     }
     if (data.is_verified) {
-      return errorResponse(res, "User is Already Verified", 400);
+      return errorResponse(res, "User is Already Verified", 400)
     }
     if (otp !== data.otp) {
-      return errorResponse(res, "Invalid OTP!", 400);
+      return errorResponse(res, "Invalid OTP!", 400)
     }
 
-    try {
-      await sendEmail(
-        "Account Verification",
-        `Hello ${data.first_name}`,
-        `<h1>Hello ${data.first_name} ${data.last_name}</h1><h3>Hurray! Congratulations.</h3><p>Your account has been verified. Now you can login to the system.</p>`,
-        data.email
-      );
-      await db
+    await db.transaction(async (transaction) => {
+      await transaction
         .update(user)
-        .set({ is_verified: true, otp: null })
-        .where(eq(user.email, email));
-
-      return successResponse(res, "User verified successfully!", email);
-    } catch (error) {
-      return errorResponse(
-        res,
-        `Error in sending email = ${error.message}`,
-        400
-      );
-    }
-    // const updatedUser = await database
-    //     .update(user)
-    //     .set({ is_verified: true, otp: null })
-    //     .where(eq(user.email, email))
-    //     .returning({ id: user.id, first_name: user.first_name, last_name: user.last_name, email: user.email, is_verified: user.is_verified })
-
-    //   return successResponse(res, "User verified successfully!", updatedUser)
-  } catch (error) {
-    return errorResponse(res, error.message, 500);
-  }
-};
-
-// Get Otp
-const getOTP = async (req, res) => {
-  try {
-    console.log("in getOTP controller");
-    const email = req.params.email;
-    console.log("email in params: ", email);
-    const data = await db.query.user.findFirst({
-      where: eq(user.email, email),
-    });
-    console.log(data);
-    if (!data) {
-      return errorResponse(res, "User Not Found", 404);
-    }
-    const newOtp = createOTP();
-
-    try {
-      await sendEmail(
-        "New OTP Request",
-        `Hello ${data.first_name}`,
-        `<h1>Hello ${data.first_name} ${data.last_name}</h1><p>You request for a new otp!!</p><p>Your OTP is <strong>${newOtp}</strong>.</p>`,
-        data.email
-      );
-
-      await db.update(user).set({ otp: newOtp }).where(eq(user.email, email));
-      return successResponse(res, "OTP sent successfully!", newOtp);
-    } catch (error) {
-      return errorResponse(
-        res,
-        `Error in sending email = ${error.message}`,
-        400
-      );
-    }
-
-    //     const otp = await database.update(user).set({ otp: newOtp }).where(eq(user.email, email)).returning({ otp: user.otp })
-    // return successResponse(res, "OTP sent successfully!", otp)
-  } catch (error) {
-    return errorResponse(res, error.message, 500);
-  }
-};
-
-// Verify OTP
-const verifyOTP = async (req, res) => {
-  console.log("in verify otp controller");
-  try {
-    const { email, otp } = req.body;
-
-    const data = await db.query.user.findFirst({
-      where: eq(user.email, email),
-      columns: {
-        email: true,
-        otp: true,
-      },
-    });
-    console.log("data: ", data);
-
-    if (!data) {
-      return errorResponse(res, "Not Found", 404);
-    }
-    if (otp !== data.otp) {
-      return errorResponse(res, "Invalid OTP", 400);
-    }
-
-    await db.update(user).set({ otp: null }).where(eq(user.email, email));
-
-    return successResponse(res, "OTP verified successfully!", email);
-  } catch (error) {
-    return errorResponse(res, error.message, 500);
-  }
-};
-
-// API for loggingIn
-const login = async (req, res) => {
-  console.log("in login controller");
-  try {
-    const { email, password } = req.body;
-
-    const data = await db.query.user.findFirst({
-      where: eq(user.email, email),
-    });
-    console.log(data);
-    if (!data) {
-      return unauthorizeResponse(res, "User not Registered!");
-    }
-
-    if (!data.is_verified) {
-      return errorResponse(res, "User not verified", 403);
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, data.password);
-
-    if (!isPasswordValid) {
-      return unauthorizeResponse(res, "Credentials are Wrong!");
-    }
-
-    const token = await createJWTToken(data.id);
-    return successResponse(res, "Login Successfully", { data, token });
-  } catch (error) {
-    return errorResponse(res, error.message, 500);
-  }
-};
-
-// Any user will Update his password
-const updatePassword = async (req, res) => {
-  console.log("in update password controller");
-  try {
-    const { oldPassword, newPassword } = req.body;
-
-    const data = await db.query.user.findFirst({
-      where: eq(user.id, req.loggedInUserId),
-    });
-
-    const isMatch = await bcrypt.compare(oldPassword, data.password);
-
-    if (!isMatch) {
-      return errorResponse(res, "Old Password is incorrect!", 400);
-    }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    try {
-      // await sendEmail(
-      //   "Password Updated Successfully!",
-      //   `Hello ${data.first_name}`,
-      //   `<h1>Hello ${data.first_name} ${data.last_name}</h1><p>Your Password has been updated against ${data.email}!</p>`,
-      //   data.email
-      // );
-
-      await db
-        .update(user)
-        .set({ password: hashedPassword })
-        .where(eq(user.id, req.loggedInUserId));
-
+        .set({ is_verified: true, otp: null, updated_at: new Date() })
+        .where(eq(user.email, email))
+      if (data) {
+        const { first_name, last_name, email } = data;
+      
+        // const emailContent = accountVerificationEmail(first_name, last_name, email);
+        // await sendEmail("User Verified - Congratulations!", emailContent, email);
+      }
       return successResponse(
         res,
-        "Password is updated, and email has been sent.",
-        email
+        "User verified successfully!",
+        data
       );
-    } catch (error) {
-      return errorResponse(
+    })
+  } catch (error) {
+    return errorResponse(res, error.message, 500)
+  }
+}
+
+const getNewOTP = async (req, res) => {
+  try {
+    const email = req.params.email
+    const check = await db.query.user.findFirst({ where: eq(user.email, email) })
+    if (!check) {
+      return errorResponse(res, "User Not Found", 404)
+    }
+    const otp = createOTP()
+
+    await db.transaction(async (transaction) => {
+      const data = await transaction
+        .update(user)
+        .set({ otp: otp })
+        .where(eq(user.email, email))
+      
+      if (check) {
+        const { first_name, last_name, email } = check;
+        const emailContent = getNewOtpEmail(first_name, last_name, otp);
+        await sendEmail("Request for new OTP", emailContent, email);
+      }
+      
+      return successResponse(
         res,
-        `Error in sending email = ${error.message}`,
-        400
+        "OTP sent successfully to your email address!"
       );
+    })
+
+  } catch (error) {
+    return errorResponse(res, error.message, 500)
+  }
+}
+
+const verifyOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body
+
+    const check = await db.query.user.findFirst({ where: eq(user.email, email) })
+
+    if (otp !== check.otp) {
+      return errorResponse(res, "Invalid OTP!", 400)
     }
 
-    //       const updatedUser = await database
-    //   .update(user)
-    //   .set({ password: hashedPassword })
-    //   .where(eq(user.id, req.loggedInUserId))
-    //   .returning({ id: user.id, email: user.email })
-
-    // return successResponse(res, "Password is updated", updatedUser)
+    await db.transaction(async (transaction) => {
+      const data = await transaction
+        .update(user)
+        .set({ otp: null })
+        .where(eq(user.email, email))
+      return successResponse(
+        res,
+        "OTP verified successfully!"
+      );
+    })
   } catch (error) {
-    return errorResponse(res, error.message, 500);
+    return errorResponse(res, error.message, 500)
   }
-};
+}
 
-// First send request to get-otp and then verify-otp and then reset-password
-const resetPassword = async (req, res) => {
-  console.log("in reset password controller");
+const login = async (req, res) => {
   try {
-    const { email, newPassword, otp } = req.body;
+    const { email, password } = req.body
 
     const data = await db.query.user.findFirst({
       where: eq(user.email, email),
-      columns: {
-        id: true,
-        is_verified: true,
-        otp: true,
-        password: true,
-        first_name: true,
-        last_name: true,
-        email: true,
-      },
-    });
-    console.log(data);
+    })
 
-    if (!data) {
-      return errorResponse(res, "User Not Found", 404);
+    const isPasswordValid = await bcrypt.compare(password, data.password)
+
+    if (!isPasswordValid) {
+      return unauthorizeResponse(res, "Credentials are Wrong!")
     }
 
-    if (!data.is_verified) {
-      return errorResponse(res, "Account is not verified", 403);
-    }
-    if (data.otp !== otp) {
-      return errorResponse(res, "Invalid Otp!", 400);
+    const { accessToken, refreshToken } = await createJWTToken(data.id)
+    return successResponse(res, "Login Successfully",
+      {
+        data,
+        accessToken,
+        refreshToken
+      })
+  } catch (error) {
+    return errorResponse(res, error.message, 500)
+  }
+}
+
+const updatePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body
+
+    const userData = await db.query.user.findFirst({ where: eq(user.id, req.loggedInUserId) })
+
+    const isMatch = await bcrypt.compare(oldPassword, userData.password)
+
+    if (!isMatch) {
+      return errorResponse(res, "Old Password is incorrect!", 400)
     }
 
-    const isSameAsCurrentPassword = await bcrypt.compare(
-      newPassword,
-      data.password
-    );
+    const hashedPassword = await bcrypt.hash(newPassword, 10)
+    
+    await db.transaction(async (transaction) => {
+      const data = await transaction
+        .update(user)
+        .set({ password: hashedPassword, updated_at: new Date() })
+        .where(eq(user.id, req.loggedInUserId))
+      
+      if (userData) {
+        const { first_name, last_name, email } = userData;
+      
+        const emailContent = passwordUpdateEmail(first_name, last_name, email);
+        await sendEmail("Password Updated", emailContent, email);
+      }
+      return successResponse(
+        res,
+        "Password Has Been Updated"
+      );
+    })
+
+  } catch (error) {
+    return errorResponse(res, error.message, 500)
+  }
+}
+
+
+const resetPassword = async (req, res) => {
+  try {
+    const { email, newPassword } = req.body
+
+    const userData = await db.query.user.findFirst({
+      where: eq(user.email, email),
+    })
+
+    const isSameAsCurrentPassword = await bcrypt.compare(newPassword, userData.password)
 
     if (isSameAsCurrentPassword) {
-      return errorResponse(
-        res,
-        "Your previous password and newPassword should not be the same",
-        400
-      );
+      return errorResponse(res, "Your previous password and newPassword should not be the same", 400)
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    // try {
-    //   await sendEmail("Password Reset Successfully!", `Hello ${data.first_name}`, `<h1>Hello ${data.first_name} ${data.last_name}</h1><p>Your Password has been updated against ${data.email}!</p>`, data.email);
-    //   const updatedUser = await database
-    //     .update(user)
-    //     .set({ password: hashedPassword })
-    //     .where(eq(user.email, email))
-    //     .returning({ id: user.id, email: user.email })
+    const hashedPassword = await bcrypt.hash(newPassword, 10)
 
-    //   return successResponse(res, "Password is Reset", updatedUser)
-    // } catch (error) {
-    //   return errorResponse(res, `Error in sending email = ${error.message}`, 400);
-    // }
+    await db.transaction(async (transaction) => {
+      const data = await transaction
+        .update(user)
+        .set({ password: hashedPassword, updated_at: new Date() })
+        .where(eq(user.email, email))
+      
+      // if (data && data.length > 0) {
+      //   const { first_name, last_name, email } = userData;
+      
+      //   const emailContent = passwordResetEmail(first_name, last_name, email);
+      //   await sendEmail("Password Reset", emailContent, email);
+      // }
+      return successResponse(
+        res,
+        "Password Has Been reset"
+      );
+    })
 
-    const updatedUser = await db
-      .update(user)
-      .set({ password: hashedPassword })
-      .where(eq(user.email, email));
-
-    return successResponse(res, "Password is Reset", updatedUser);
   } catch (error) {
-    return errorResponse(res, error.message, 500);
+    return errorResponse(res, error.message, 500)
   }
-};
+}
+
+// const profilePicture = async (req, res) => {
+//   try {
+//     const profilePicturePath = req.file.path
+
+//     const currentPicture = await database.query.user.findFirst({
+//       where: eq(user.id, req.loggedInUserId),
+//       columns: {
+//         profile_picture: true,
+//       },
+//     })
+
+//     if (currentPicture && currentPicture.profile_picture) {
+//       if (fs.existsSync(currentPicture.profile_picture)) {
+//         fs.unlinkSync(currentPicture.profile_picture)
+//       }
+//     }
+
+//     const updatedUser = await database
+//       .update(user)
+//       .set({ profile_picture: profilePicturePath, updated_at: new Date() })
+//       .where(eq(user.id, req.loggedInUserId))
+//       .returning()
+
+//     const updated_url = `/${updatedUser[0].profile_picture.replace(/^public/, "").replace(/\\/g, "/")}`
+//     const percentage = calculateProfileCompletion(updatedUser[0])
+//     const data = await database
+//       .update(user)
+//       .set({
+//         profile_completion: percentage,
+//         profile_picture: updated_url
+//       })
+//       .where(eq(user.id, req.loggedInUserId))
+//       .returning()
+//     return successResponse(res, "Profile picture is set successfully!", data)
+//   } catch (error) {
+//     return errorResponse(res, error.message, 500)
+//   }
+// }
 
 //Logout API It will delete the token from Bearer header
+
 const logOut = async (req, res) => {
   try {
-    const token = getToken(req);
-    const decodedToken = verifyToken(token);
+    const token = getToken(req)
+    const decodedToken = verifyToken(token)
     if (!token) {
-      return unauthorizeResponse(res, "Authentication token is required");
+      return unauthorizeResponse(res, "Authentication token is required")
     }
 
-    const data = await db
-      .insert(blackListToken)
-      .values({ token, expire_time: decodedToken.exp });
-    return successResponse(res, "Log out successfully", data);
+    const data = await database.insert(blackListToken).values({ token, expire_time: decodedToken.exp })
+    return successResponse(res, "Log out successfully")
   } catch (error) {
-    return errorResponse(res, error.message, 500);
+    return errorResponse(res, error.message, 500)
   }
-};
+}
 
 export {
   registerUser,
   verifyUser,
-  getOTP,
+  getNewOTP,
   verifyOTP,
   login,
   updatePassword,

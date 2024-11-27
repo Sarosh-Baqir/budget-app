@@ -1,6 +1,4 @@
-import dotenv from "dotenv";
-
-dotenv.config({ path: ".env" });
+import 'dotenv/config'
 
 export const {
   SERVER_PORT,
@@ -12,7 +10,8 @@ export const {
   DB_USER,
   DB_NAME,
   JWT_PRIVATE_KEY,
-  JWT_EXPIRATION_TIME,
+  JWT_ACCESS_EXPIRATION_TIME,
+  JWT_REFRESH_EXPIRATION_TIME,
   EMAIL_USER,
   EMAIL_PASS,
   EMAIL_NAME,

@@ -59,8 +59,7 @@ const resetPasswordValidationSchema = z.object({
   email: z.string().email().min(1),
   newPassword: z.string().min(8).refine(passwordContainsMixture, {
     message: "Password must be a mixture of numbers and characters",
-  }),
-  otp: z.string().min(6).max(7),
+  })
 });
 
 export {

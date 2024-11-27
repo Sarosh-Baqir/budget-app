@@ -1,22 +1,18 @@
-//import dotenv from "dotenv";
 import express from "express";
-//import { db } from "../db/database.js";
-//import routes from "./routes/index.js";
-
-//dotenv.config({ path: ".env" });
+import routes from './routes/index.js'
+import cors from 'cors';
+import 'dotenv/config';
+import { SERVER_HOST,  SERVER_PORT } from "./utils/constants.js";
 
 const app = express();
 
-//app.use(express.static("public"));
-//app.use(express.json());
-//app.use("/api", routes);
 
-// Example route
-app.get("/", (req, res) => {
-  console.log("in signup");
-  res.send("in signup");
-});
+app.use(cors());
+app.use(express.static("public"));
+app.use(express.json());
+app.use('/api', routes);
 
 app.listen(3000, () => {
-  console.log(`Server is running on http://localhost:3000`);
+  console.log(`Server is running on http://${SERVER_HOST}:${SERVER_PORT}`);
 });
+

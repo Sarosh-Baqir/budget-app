@@ -1,10 +1,7 @@
-import {
-  mysqlTable,
-  int,
-  varchar,
-  timestamp,
-  boolean,
-} from "drizzle-orm/mysql-core";
+import { mysqlTable, int, varchar, timestamp, boolean } from "drizzle-orm/mysql-core";
+import { relations } from "drizzle-orm";
+import { transaction } from "./transaction.js";
+import { category } from "./category.js";
 
 export const user = mysqlTable("user", {
   id: int("id").notNull().autoincrement().unique().primaryKey(),
@@ -21,3 +18,8 @@ export const user = mysqlTable("user", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
+
+export const userRelations = relations(user, ({ many }) => ({
+  categories: many(category),
+  transactions: many(transaction),
+}));

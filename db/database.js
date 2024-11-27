@@ -1,19 +1,19 @@
+import 'dotenv/config'
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import schema from "./schema/index.js";
-import { user } from "./schema/user.js";
+import { DB_HOST, DB_NAME, DB_PASSWORD, DB_USER } from '../src/utils/constants.js';
 
 const poolConnection = mysql.createPool({
-  host: "127.0.0.1",
-  user: "root",
-  password: "C8ed2377",
-  database: "test",
+  host: DB_HOST,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_NAME,
 });
 
-// Test the database connection
 (async () => {
   try {
-    const connection = await poolConnection.getConnection(); // Test connection
+    const connection = await poolConnection.getConnection();
     console.log("Database connection has been established successfully!");
     connection.release();
   } catch (error) {

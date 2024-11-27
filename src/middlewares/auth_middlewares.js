@@ -9,50 +9,96 @@ import {
 } from "../utils/response.handle.js";
 
 const authentication = async (req, res, next) => {
-  //console.log("in auth middleware");
   try {
-    const token = getToken(req);
-    //console.log("token: ", token);
+    const token = getToken(req)
 
     if (!token) {
-      return unauthorizeResponse(res, "Authentication token is required");
+      return unauthorizeResponse(res, "Authentication token is required")
     }
 
-    const invalidToken = await db.query.blackListToken.findFirst({
-      where: eq(blackListToken.token, token),
-    });
-    //console.log("invalid token: ", invalidToken);
+    const invalidToken = await db.query.blackListToken.findFirst({ where: eq(blackListToken.token, token) })
     if (invalidToken) {
-      return unauthorizeResponse(res, "Unauthorize! Invalid Token");
+      return unauthorizeResponse(res, "Unauthorize! Invalid Token")
     }
 
-    let decodedToken;
+    let decodedToken
 
     try {
-      decodedToken = verifyToken(token);
+      decodedToken = verifyToken(token); 
+      if (decodedToken.tokenType === 'refresh') {
+        return unauthorizeResponse(res, "Invalid token! Refresh tokens cannot be used for authorization");
+      }
+
     } catch (error) {
-      if (error.name === "TokenExpiredError") {
+      if (error.message === "TokenExpiredError") {
         return unauthorizeResponse(res, "Token has expired");
-      } else {
+      }
+      if (error.message === "InvalidTokenError") {
         return unauthorizeResponse(res, "Invalid token");
       }
+      return unauthorizeResponse(res, "Token verification failed");
     }
 
     const data = await db.query.user.findFirst({
       where: eq(user.id, decodedToken.id),
       columns: { id: true },
-    });
+    })
 
     if (!data) {
-      return unauthorizeResponse(res, "Unauthorize! User not Found");
+      return unauthorizeResponse(res, "Unauthorize! User not Found")
     }
-    // Sending LoggedIn user in the next middleware
-    req.loggedInUserId = data.id;
-    next();
+    req.loggedInUserId = data.id
+    next()
   } catch (error) {
-    return errorResponse(res, error.message, 500);
+    return errorResponse(res, error.message, 500)
   }
-};
+}
+
+// const authentication = async (req, res, next) => {
+//   //console.log("in auth middleware");
+//   try {
+//     const token = getToken(req);
+//     //console.log("token: ", token);
+
+//     if (!token) {
+//       return unauthorizeResponse(res, "Authentication token is required");
+//     }
+
+//     const invalidToken = await db.query.blackListToken.findFirst({
+//       where: eq(blackListToken.token, token),
+//     });
+//     //console.log("invalid token: ", invalidToken);
+//     if (invalidToken) {
+//       return unauthorizeResponse(res, "Unauthorize! Invalid Token");
+//     }
+
+//     let decodedToken;
+
+//     try {
+//       decodedToken = verifyToken(token);
+//     } catch (error) {
+//       if (error.name === "TokenExpiredError") {
+//         return unauthorizeResponse(res, "Token has expired");
+//       } else {
+//         return unauthorizeResponse(res, "Invalid token");
+//       }
+//     }
+
+//     const data = await db.query.user.findFirst({
+//       where: eq(user.id, decodedToken.id),
+//       columns: { id: true },
+//     });
+
+//     if (!data) {
+//       return unauthorizeResponse(res, "Unauthorize! User not Found");
+//     }
+//     // Sending LoggedIn user in the next middleware
+//     req.loggedInUserId = data.id;
+//     next();
+//   } catch (error) {
+//     return errorResponse(res, error.message, 500);
+//   }
+// };
 
 // Middleware to check if user is already registered
 const checkUserAlreadyRegistered = async (req, res, next) => {

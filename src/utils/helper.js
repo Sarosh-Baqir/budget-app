@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import { JWT_PRIVATE_KEY, JWT_EXPIRATION_TIME } from "./constants.js";
+import { JWT_PRIVATE_KEY, JWT_ACCESS_EXPIRATION_TIME, JWT_REFRESH_EXPIRATION_TIME } from "./constants.js";
 import { db } from "../../db/database.js";
 import { budget } from "../../db/schema/budget.js";
 import { eq } from "drizzle-orm";
@@ -12,17 +12,37 @@ const createOTP = () => {
 
 const createJWTToken = async (payload) => {
   try {
-    const token = await jwt.sign({ id: payload }, JWT_PRIVATE_KEY, {
-      expiresIn: JWT_EXPIRATION_TIME,
-    });
-    return token;
+    const accessToken = await jwt.sign(
+      { id: payload, tokenType:"access" },
+      JWT_PRIVATE_KEY,
+      { expiresIn: JWT_ACCESS_EXPIRATION_TIME }
+    );
+
+    const refreshToken = await jwt.sign(
+      { id: payload, tokenType:"refresh"  },
+      JWT_PRIVATE_KEY,
+      { expiresIn: JWT_REFRESH_EXPIRATION_TIME } 
+    );
+
+    return { accessToken, refreshToken };
   } catch (error) {
     console.log(error.message);
+    throw new Error("Token generation failed");
   }
 };
 
 const verifyToken = (token) => {
-  return jwt.verify(token, JWT_PRIVATE_KEY);
+  try {
+    return jwt.verify(token, JWT_PRIVATE_KEY);
+  } catch (error) {
+    if (error.name === "TokenExpiredError") {
+      throw new Error("TokenExpiredError");
+    }
+    if (error.name === "JsonWebTokenError") {
+      throw new Error("InvalidTokenError");
+    }
+    throw new Error("TokenVerificationError");
+  }
 };
 
 function getToken(req) {
